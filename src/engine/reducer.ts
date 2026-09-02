@@ -175,17 +175,29 @@ function setZugEndeOderWeiterWuerfeln(state: GameState): void {
   state.phase = state.paschInFolge > 0 ? { typ: "wuerfeln" } : { typ: "zug-ende" };
 }
 
-/** Verlangt eine Zahlung; zahlt sofort falls möglich, sonst wird `schuld-offen`. Gibt zurück, ob sofort bezahlt wurde. */
-function verlangeZahlung(state: GameState, schuldnerId: SpielerId, glaeubigerId: SpielerId | null, betrag: number, grund: string): boolean {
+/**
+ * Verlangt eine Zahlung; zahlt sofort falls möglich, sonst wird `schuld-offen`. Gibt zurück, ob
+ * sofort bezahlt wurde. `topfFaehig` markiert Zahlungen an die Bank (Steuern, Kartenkosten,
+ * Kaution), die per Hausregel im Frei-Parken-Topf landen statt einfach zu verschwinden.
+ */
+function verlangeZahlung(
+  state: GameState,
+  schuldnerId: SpielerId,
+  glaeubigerId: SpielerId | null,
+  betrag: number,
+  grund: string,
+  topfFaehig = false,
+): boolean {
   if (betrag <= 0) return true;
   const schuldner = spieler(state, schuldnerId);
   if (schuldner.geld >= betrag) {
     schuldner.geld -= betrag;
     if (glaeubigerId) spieler(state, glaeubigerId).geld += betrag;
+    else if (topfFaehig) state.frueParkenTopf += betrag;
     eintragen(state, `${schuldner.name} zahlt ${betrag} (${grund}).`, schuldnerId);
     return true;
   }
-  const schuld: Schuld = { schuldner: schuldnerId, glaeubiger: glaeubigerId, betrag, grund };
+  const schuld: Schuld = { schuldner: schuldnerId, glaeubiger: glaeubigerId, betrag, grund, anFreiParkenTopf: topfFaehig };
   state.phase = { typ: "schuld-offen", schuld };
   eintragen(state, `${schuldner.name} kann ${betrag} (${grund}) nicht sofort zahlen.`, schuldnerId);
   return false;
@@ -237,15 +249,24 @@ function feldBetreten(state: GameState, spielerId: SpielerId, feldId: number): v
   switch (feld.art) {
     case "los":
     case "gefaengnis-besuch":
-    case "frei-parken":
       setZugEndeOderWeiterWuerfeln(state);
       return;
+    case "frei-parken": {
+      const s = spieler(state, spielerId);
+      if (state.frueParkenTopf > 0) {
+        s.geld += state.frueParkenTopf;
+        eintragen(state, `${s.name} kassiert den Frei-Parken-Topf: ${state.frueParkenTopf}.`, spielerId);
+        state.frueParkenTopf = 0;
+      }
+      setZugEndeOderWeiterWuerfeln(state);
+      return;
+    }
     case "gehe-ins-gefaengnis":
       sendeInsGefaengnis(state, spielerId);
       state.phase = { typ: "zug-ende" };
       return;
     case "steuer": {
-      const bezahlt = verlangeZahlung(state, spielerId, null, feld.betrag, feld.name);
+      const bezahlt = verlangeZahlung(state, spielerId, null, feld.betrag, feld.name, true);
       if (bezahlt) setZugEndeOderWeiterWuerfeln(state);
       return;
     }
@@ -285,7 +306,7 @@ function wendeKartenEffektAn(state: GameState, spielerId: SpielerId, karte: Kart
         eintragen(state, `${s.name} erhält ${eff.betrag}.`, spielerId);
         setZugEndeOderWeiterWuerfeln(state);
       } else {
-        const bezahlt = verlangeZahlung(state, spielerId, null, -eff.betrag, karte.text);
+        const bezahlt = verlangeZahlung(state, spielerId, null, -eff.betrag, karte.text, true);
         if (bezahlt) setZugEndeOderWeiterWuerfeln(state);
       }
       return;
@@ -309,7 +330,7 @@ function wendeKartenEffektAn(state: GameState, spielerId: SpielerId, karte: Kart
           eintragen(state, `${s.name} zahlt jedem Mitspieler ${-eff.betrag}.`, spielerId);
           setZugEndeOderWeiterWuerfeln(state);
         } else {
-          const bezahlt = verlangeZahlung(state, spielerId, null, gesamt, "Zahlung an alle Mitspieler");
+          const bezahlt = verlangeZahlung(state, spielerId, null, gesamt, "Zahlung an alle Mitspieler", true);
           if (bezahlt) setZugEndeOderWeiterWuerfeln(state);
         }
       }
@@ -338,7 +359,7 @@ function wendeKartenEffektAn(state: GameState, spielerId: SpielerId, karte: Kart
     }
     case "reparaturen": {
       const summe = berechneReparaturen(state, spielerId, eff.proHaus, eff.proHotel);
-      const bezahlt = verlangeZahlung(state, spielerId, null, summe, karte.text);
+      const bezahlt = verlangeZahlung(state, spielerId, null, summe, karte.text, true);
       if (bezahlt) setZugEndeOderWeiterWuerfeln(state);
       return;
     }
@@ -427,7 +448,7 @@ function verarbeite(state: GameState, action: Action): void {
         }
         s.gefaengnisRunden += 1;
         if (s.gefaengnisRunden >= 3) {
-          const bezahlt = verlangeZahlung(state, s.id, null, state.brett.gefaengnisKaution, "Kaution (dritter Fehlversuch)");
+          const bezahlt = verlangeZahlung(state, s.id, null, state.brett.gefaengnisKaution, "Kaution (dritter Fehlversuch)", true);
           if (bezahlt) {
             s.imGefaengnis = false;
             s.gefaengnisRunden = 0;
@@ -472,6 +493,7 @@ function verarbeite(state: GameState, action: Action): void {
       const s = spieler(state, state.amZug);
       pruefe(s.geld >= state.brett.gefaengnisKaution, "Nicht genug Geld für die Kaution.");
       s.geld -= state.brett.gefaengnisKaution;
+      state.frueParkenTopf += state.brett.gefaengnisKaution;
       s.imGefaengnis = false;
       s.gefaengnisRunden = 0;
       eintragen(state, `${s.name} zahlt die Kaution und ist frei.`, s.id);
@@ -664,6 +686,7 @@ function verarbeite(state: GameState, action: Action): void {
       pruefe(s.geld >= schuld.betrag, "Nicht genug Geld, um die Schuld zu begleichen.");
       s.geld -= schuld.betrag;
       if (schuld.glaeubiger) spieler(state, schuld.glaeubiger).geld += schuld.betrag;
+      else if (schuld.anFreiParkenTopf) state.frueParkenTopf += schuld.betrag;
       eintragen(state, `${s.name} begleicht eine Schuld von ${schuld.betrag} (${schuld.grund}).`, schuld.schuldner);
       if (schuld.grund.startsWith("Kaution")) {
         s.imGefaengnis = false;
@@ -777,6 +800,7 @@ function verarbeite(state: GameState, action: Action): void {
       an.freiKarten += angebot.gebeFreiKarten - angebot.willFreiKarten;
 
       state.offeneAngebote = state.offeneAngebote.filter((a) => a.id !== angebot.id);
+      state.handelsVerlauf.push({ ...angebot, ergebnis: "angenommen" });
       eintragen(state, `${an.name} nimmt den Handel von ${von.name} an.`, an.id, [von.id, an.id]);
       return;
     }
@@ -785,6 +809,7 @@ function verarbeite(state: GameState, action: Action): void {
       const angebot = state.offeneAngebote.find((a) => a.id === action.angebotId);
       if (!angebot) return;
       state.offeneAngebote = state.offeneAngebote.filter((a) => a.id !== action.angebotId);
+      state.handelsVerlauf.push({ ...angebot, ergebnis: "abgelehnt" });
       eintragen(state, action.nachricht ? `Handel abgelehnt: ${action.nachricht}` : "Ein Handelsangebot wurde abgelehnt.", null, [
         angebot.von,
         angebot.an,
@@ -793,7 +818,7 @@ function verarbeite(state: GameState, action: Action): void {
     }
 
     case "chat": {
-      eintragen(state, action.text, action.von, "alle");
+      eintragen(state, action.text, action.von, action.an ? [action.von, action.an] : "alle");
       return;
     }
   }

@@ -109,19 +109,62 @@ select {
 }
 
 .spieler-karte {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel-bg);
+  text-align: left;
+}
+
+.spieler-karte-zeile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.spieler-karte input[type="text"] {
+.spieler-karte-zeile input[type="text"] {
   flex: 1;
   min-width: 100px;
+}
+
+.ki-einstellungen {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ki-einstellungen-zeile {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.ki-einstellungen input[type="text"] {
+  width: 100%;
+}
+
+.gnade-hinweis {
+  font-size: 12px;
+  opacity: 0.7;
+  margin: -2px 0 4px;
+}
+
+.regler {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.regler input[type="range"] {
+  flex: 1;
+  max-width: 220px;
 }
 
 .entfernen {
@@ -143,6 +186,7 @@ select {
 /* ── Spielfeld-Layout ─────────────────────────────────────── */
 
 .spielfeld {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
@@ -151,8 +195,28 @@ select {
   margin: 0 auto;
 }
 
+.oben-kopf {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.stumm-schalter {
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: 50%;
+}
+
 .spielfeld-oben {
   flex: 1 1 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.action-bereich {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .spielfeld-seite {
@@ -174,6 +238,8 @@ select {
   border: 2px solid var(--border);
   aspect-ratio: 1;
   width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
 }
 
 .feld {
@@ -184,6 +250,18 @@ select {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  border: none;
+  color: inherit;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  transition: filter 0.1s;
+}
+
+.feld:hover {
+  filter: brightness(1.15);
 }
 
 .feld-farbe {
@@ -204,22 +282,24 @@ select {
   font-size: 10px;
 }
 
-.feld-eigentuemer {
-  position: absolute;
-  bottom: 2px;
-  left: 2px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.feld-eigentuemer-name {
+  font-size: 8px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .feld-hypothek {
   position: absolute;
   top: 2px;
   right: 2px;
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 700;
   color: var(--gefahr);
+  background: var(--panel-bg);
+  padding: 0 2px;
+  border-radius: 3px;
 }
 
 .feld-figuren {
@@ -238,6 +318,36 @@ select {
   border: 1px solid rgba(0, 0, 0, 0.3);
 }
 
+.wuerfel-reihe {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+
+.wuerfel {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: 8px;
+  box-shadow: var(--shadow);
+  place-items: center;
+}
+
+.wuerfel .pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.wuerfel .pip.an {
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
 .brett-mitte {
   background: var(--bg);
   display: flex;
@@ -246,15 +356,6 @@ select {
   padding: 12px;
 }
 
-.mitte-inhalt {
-  width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  align-items: stretch;
-  text-align: center;
-}
 
 /* ── Spielerliste ─────────────────────────────────────────── */
 
@@ -324,9 +425,8 @@ select {
   font-size: 12px;
 }
 
-/* ── Besitz-/Handelspanel ─────────────────────────────────── */
+/* ── Handelspanel / Log ───────────────────────────────────── */
 
-.property-manager,
 .trade-panel,
 .log {
   background: var(--panel-bg);
@@ -335,42 +435,93 @@ select {
   padding: 12px;
 }
 
-.property-liste {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.property-zeile {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 4px;
-}
-
-.property-name {
-  flex: 1;
-  text-align: left;
-}
-
 .property-belastet {
   color: var(--gefahr);
   font-size: 11px;
 }
 
-.property-aktionen {
+/* ── Feldkarte (Klick auf ein Brettfeld) ──────────────────── */
+
+.feldkarte-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
   display: flex;
-  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 16px;
 }
 
-.property-aktionen button {
-  font-size: 11px;
-  padding: 3px 6px;
+.feldkarte {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  max-width: 360px;
+  width: 100%;
+  padding: 16px;
+  text-align: left;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.feldkarte-farbe {
+  height: 10px;
+  margin: -16px -16px 12px;
+  border-radius: 10px 10px 0 0;
+}
+
+.feldkarte-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.feldkarte-kopf h3 {
+  margin: 0;
+}
+
+.feldkarte-schliessen {
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  padding: 0 4px;
+}
+
+.feldkarte-besitzer {
+  font-size: 13px;
+}
+
+.mietstaffel {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.mietstaffel td {
+  padding: 2px 4px;
+}
+
+.mietstaffel td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mietstaffel tr.aktuell {
+  background: var(--accent-bg);
+  font-weight: 600;
+}
+
+.feldkarte-verwaltung {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
 }
 
 .trade-angebot {
@@ -380,6 +531,53 @@ select {
   margin-bottom: 8px;
   font-size: 13px;
   text-align: left;
+}
+
+.trade-leer {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.trade-fremd {
+  opacity: 0.7;
+}
+
+.trade-verlauf {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.trade-verlauf-umschalter {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  font-weight: 600;
+  padding: 2px 0;
+}
+
+.trade-verlauf-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.trade-verlauf-eintrag {
+  border-left: 3px solid var(--border);
+  padding-left: 6px;
+}
+
+.trade-verlauf-angenommen {
+  border-left-color: var(--accent);
+}
+
+.trade-verlauf-abgelehnt {
+  border-left-color: var(--gefahr);
 }
 
 .trade-nachricht {
@@ -438,6 +636,16 @@ select {
   gap: 6px;
 }
 
+.log-eingabe select {
+  flex: 0 0 auto;
+  max-width: 90px;
+}
+
 .log-eingabe input {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.log-eingabe button {
+  flex: 0 0 auto;
 }

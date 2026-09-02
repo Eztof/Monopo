@@ -280,4 +280,56 @@ describe("Handel", () => {
     expect(r.state.spieler.find((s) => s.id === "b")!.geld).toBe(1500 - 20);
     expect(r.state.offeneAngebote).toHaveLength(0);
   });
+
+  it("merkt abgeschlossene Handel im Verlauf vor", () => {
+    let state = spiel(["a", "b"]);
+    state.besitz[1].eigentuemer = "a";
+    let r = dispatch(state, {
+      typ: "handel-anbieten",
+      angebot: { von: "a", an: "b", gebeFelder: [1], gebeGeld: 0, gebeFreiKarten: 0, willFelder: [], willGeld: 50, willFreiKarten: 0 },
+    });
+    if (!r.ok) throw new Error(r.grund);
+    const id1 = r.state.offeneAngebote[0].id;
+    r = dispatch(r.state, { typ: "handel-ablehnen", angebotId: id1 });
+    if (!r.ok) throw new Error(r.grund);
+    expect(r.state.handelsVerlauf).toHaveLength(1);
+    expect(r.state.handelsVerlauf[0].ergebnis).toBe("abgelehnt");
+
+    r = dispatch(r.state, {
+      typ: "handel-anbieten",
+      angebot: { von: "a", an: "b", gebeFelder: [1], gebeGeld: 0, gebeFreiKarten: 0, willFelder: [], willGeld: 50, willFreiKarten: 0 },
+    });
+    if (!r.ok) throw new Error(r.grund);
+    const id2 = r.state.offeneAngebote[0].id;
+    r = dispatch(r.state, { typ: "handel-annehmen", angebotId: id2 });
+    if (!r.ok) throw new Error(r.grund);
+    expect(r.state.handelsVerlauf).toHaveLength(2);
+    expect(r.state.handelsVerlauf[1].ergebnis).toBe("angenommen");
+  });
+});
+
+describe("Frei Parken", () => {
+  it("sammelt Steuern im Topf und schüttet ihn beim Landen aus", () => {
+    // Steuerzahlung über eine offene Schuld simulieren -> muss im Topf landen.
+    const s = spiel(["a", "b"]);
+    s.phase = { typ: "schuld-offen", schuld: { schuldner: "a", glaeubiger: null, betrag: 200, grund: "Einkommensteuer", anFreiParkenTopf: true } };
+    const bezahlt = dispatch(s, { typ: "schuld-begleichen" });
+    expect(bezahlt.ok).toBe(true);
+    if (!bezahlt.ok) return;
+    expect(bezahlt.state.frueParkenTopf).toBe(200);
+
+    // b landet jetzt exakt auf "Frei Parken" (Feld 20) und kassiert den Topf.
+    const seed = bezahlt.state.seed;
+    bezahlt.state.amZug = "b";
+    bezahlt.state.phase = { typ: "wuerfeln" };
+    const [w1, w2] = wuerfleZweiWuerfel(seed, bezahlt.state.ziehungsZaehler);
+    bezahlt.state.spieler[1].position = 20 - (w1 + w2); // kein Wrap-Around, also keine Los-Bonus-Interferenz
+    const vorher = bezahlt.state.spieler[1].geld;
+
+    const finalR = dispatch(bezahlt.state, { typ: "wuerfeln" });
+    expect(finalR.ok).toBe(true);
+    if (!finalR.ok) return;
+    expect(finalR.state.spieler[1].geld).toBe(vorher + 200);
+    expect(finalR.state.frueParkenTopf).toBe(0);
+  });
 });

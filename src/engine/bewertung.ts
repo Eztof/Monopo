@@ -39,7 +39,8 @@ export function kaufEntscheidung(
   if (spieler.geld < feld.kaufpreis) {
     return { kaufen: false, begruendung: "Zu wenig Bargeld." };
   }
-  const puffer = schwierigkeit.liquiditaetspuffer * 100;
+  // Risikobereitschaft schrumpft den nötigen Cash-Puffer — bis zu 60% weniger bei voller Risikofreude.
+  const puffer = schwierigkeit.liquiditaetspuffer * 100 * (1 - schwierigkeit.risikobereitschaft * 0.6);
   const geldNachKauf = spieler.geld - feld.kaufpreis;
   const wert = schaetzeFeldWert(state, spielerId, feld);
   const lohntSich = wert >= feld.kaufpreis * 0.9;
@@ -61,9 +62,10 @@ export function bietGrenze(
   schwierigkeit: KiProfil["schwierigkeit"],
 ): number {
   const wert = schaetzeFeldWert(state, spielerId, feld);
-  const puffer = schwierigkeit.liquiditaetspuffer * 100;
+  const puffer = schwierigkeit.liquiditaetspuffer * 100 * (1 - schwierigkeit.risikobereitschaft * 0.6);
   const spieler = state.spieler.find((p) => p.id === spielerId)!;
-  const bereitschaft = wert * schwierigkeit.handelsmarge;
+  // Risikofreudige Bots gehen bei einer Auktion auch mal über den reinen Marktwert hinaus.
+  const bereitschaft = wert * schwierigkeit.handelsmarge * (1 + schwierigkeit.risikobereitschaft * 0.3);
   return Math.max(0, Math.min(bereitschaft, spieler.geld - puffer));
 }
 
@@ -77,9 +79,18 @@ function paketWert(state: GameState, felder: number[], geld: number, freiKarten:
   return summe;
 }
 
-/** Ob die KI (als Empfänger `an`) ein eingehendes Handelsangebot annehmen sollte. */
-export function bewerteHandelsangebot(state: GameState, angebot: Handelsangebot, schwierigkeit: KiProfil["schwierigkeit"]): boolean {
+/**
+ * Ob die KI (als Empfänger `an`) ein eingehendes Handelsangebot annehmen sollte.
+ * `zusatzMarge` ist der Hebel für die Gnade-Einstellung (bot.ts): >1 macht die KI wählerischer
+ * (erbarmungslos), <1 großzügiger (mitleidend/spielerschonend) — unabhängig von der Schwierigkeit.
+ */
+export function bewerteHandelsangebot(
+  state: GameState,
+  angebot: Handelsangebot,
+  schwierigkeit: KiProfil["schwierigkeit"],
+  zusatzMarge = 1,
+): boolean {
   const erhalten = paketWert(state, angebot.gebeFelder, angebot.gebeGeld, angebot.gebeFreiKarten, angebot.an);
   const abgegeben = paketWert(state, angebot.willFelder, angebot.willGeld, angebot.willFreiKarten, angebot.an);
-  return erhalten >= abgegeben * schwierigkeit.handelsmarge;
+  return erhalten >= abgegeben * schwierigkeit.handelsmarge * zusatzMarge;
 }

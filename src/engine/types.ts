@@ -194,6 +194,13 @@ export interface Schuld {
   glaeubiger: SpielerId | null;
   betrag: number;
   grund: string;
+  /** Fließt der Betrag bei Begleichung in den Frei-Parken-Topf (Hausregel)? Nur bei glaeubiger === null relevant. */
+  anFreiParkenTopf?: boolean;
+}
+
+/** Ein abgeschlossener Handel, fürs Nachlesen im Verlauf. */
+export interface HandelsVerlaufEintrag extends Handelsangebot {
+  ergebnis: "angenommen" | "abgelehnt";
 }
 
 export interface GameState {
@@ -206,6 +213,10 @@ export interface GameState {
   hotelsImVorrat: number;
   phase: Phase;
   offeneAngebote: Handelsangebot[];
+  /** Abgeschlossene Handel (angenommen oder abgelehnt), neueste zuletzt. */
+  handelsVerlauf: HandelsVerlaufEintrag[];
+  /** Hausregel: Steuern und sonstige Zahlungen an die Bank sammeln sich hier, bis jemand auf "Frei Parken" landet. */
+  frueParkenTopf: number;
   letzterWurf: [number, number] | null;
   paschInFolge: 0 | 1 | 2;
   ereignisStapel: string[];
@@ -248,7 +259,8 @@ export type Action =
   | { typ: "schuld-begleichen" }
   | { typ: "bankrott-erklaeren" }
   | { typ: "zug-beenden" }
-  | { typ: "chat"; von: SpielerId; text: string }
+  /** `an` gesetzt = private Nachricht (Einzel-Chat); weggelassen = öffentliche Ansage an alle. */
+  | { typ: "chat"; von: SpielerId; an?: SpielerId; text: string }
   /** Bestätigt eine reine Info-Phase (z.B. eine gezogene Karte) und löst deren Effekt aus. */
   | { typ: "weiter" };
 
@@ -270,10 +282,14 @@ export interface KiProfil {
     liquiditaetspuffer: number;
     /** Bereitschaft, Monopole des Gegners zu verhindern (0..1) */
     blockierneigung: number;
-    /** Aufschlag/Abschlag beim Handeln (1.0 = fairer Marktwert) */
+    /** Aufschlag/Abschlag beim Handeln (1.0 = fairer Marktwert) — "Handelsschläue" */
     handelsmarge: number;
     /** Wahrscheinlichkeit für bewusst suboptimale Züge */
     fehlerquote: number;
+    /** 0 = ängstlich/konservativ, 1 = geht bis ans Limit (Käufe, Gebote, kleinerer Cash-Puffer) */
+    risikobereitschaft: number;
+    /** 0 = hortet Bargeld statt zu bauen, 1 = baut sofort bei jeder Gelegenheit aus */
+    baufreude: number;
   };
   /** Steuert nur den Text — Ton, Trash Talk, Nachtragendsein */
   persoenlichkeit: {
@@ -284,6 +300,12 @@ export interface KiProfil {
     /** Bleibende Haltung gegenüber Mitspielern, wächst über das Spiel */
     beziehungen: Record<SpielerId, number>; // -1..1
   };
+  /**
+   * Unabhängig von der Schwierigkeit: wie die KI mit Mitspielern umgeht, die kurz vor dem
+   * Bankrott stehen. "spielerschonend" hilft gezielt dem menschlichen Spieler, "mitleidend"
+   * jedem in Not, "normal" greift nicht ein, "erbarmungslos" verhandelt zusätzlich härter.
+   */
+  gnade: "mitleidend" | "normal" | "erbarmungslos" | "spielerschonend";
 }
 
 /** Was das LLM zu sehen bekommt — reduziert und ohne verdeckte Info */
