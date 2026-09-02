@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { schwierigkeitsGrade, type Spielerkonfiguration } from "../engine/state";
 import type { KiProfil } from "../engine/types";
+import { parseCharacterCard } from "./characterCard";
 
 type Schwierigkeit = keyof typeof schwierigkeitsGrade;
 type Gnade = KiProfil["gnade"];
@@ -9,8 +10,11 @@ interface SpielerEntwurf {
   name: string;
   farbe: string;
   steuerung: "mensch" | "ki";
+  startgeld: number;
   schwierigkeit: Schwierigkeit;
   persoenlichkeit: string;
+  kartenName: string | null; // Dateiname der importierten Character Card, nur zur Anzeige
+  kartenDaten: Record<string, unknown> | null;
   // Eigene Regler, per Voreinstellung befüllt, aber unabhängig verstellbar — das sind die
   // Einstellungen, die tatsächlich das Verhalten der KI verändern (siehe bewertung.ts/bot.ts).
   risikobereitschaft: number;
@@ -20,6 +24,7 @@ interface SpielerEntwurf {
 }
 
 const farben = ["#e6462f", "#2f7fe6", "#2fa64d", "#e6c02f", "#a64de6", "#2fc0c0"];
+const STARTGELD_DEFAULT = 1500;
 
 function neuerEntwurf(name: string, farbe: string, steuerung: "mensch" | "ki", schwierigkeit: Schwierigkeit = "mittel"): SpielerEntwurf {
   const preset = schwierigkeitsGrade[schwierigkeit];
@@ -27,8 +32,11 @@ function neuerEntwurf(name: string, farbe: string, steuerung: "mensch" | "ki", s
     name,
     farbe,
     steuerung,
+    startgeld: STARTGELD_DEFAULT,
     schwierigkeit,
     persoenlichkeit: "",
+    kartenName: null,
+    kartenDaten: null,
     risikobereitschaft: preset.risikobereitschaft,
     handelsschlaeue: preset.handelsmarge,
     baufreude: preset.baufreude,
@@ -56,6 +64,7 @@ export interface SetupErgebnis {
 export function Setup({ onStart }: { onStart: (ergebnis: SetupErgebnis) => void }) {
   const [entwuerfe, setEntwuerfe] = useState<SpielerEntwurf[]>(standard);
   const [seed, setSeed] = useState("");
+  const [kartenFehler, setKartenFehler] = useState<string | null>(null);
 
   function aktualisiere(i: number, patch: Partial<SpielerEntwurf>) {
     setEntwuerfe((liste) => liste.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
@@ -69,6 +78,17 @@ export function Setup({ onStart }: { onStart: (ergebnis: SetupErgebnis) => void 
       handelsschlaeue: preset.handelsmarge,
       baufreude: preset.baufreude,
     });
+  }
+
+  async function karteImportieren(i: number, datei: File) {
+    setKartenFehler(null);
+    try {
+      const text = await datei.text();
+      const figur = parseCharacterCard(JSON.parse(text));
+      aktualisiere(i, { name: figur.name, persoenlichkeit: figur.beschreibung, kartenName: datei.name, kartenDaten: figur.rohdaten });
+    } catch (e) {
+      setKartenFehler(`"${datei.name}" konnte nicht gelesen werden: ${e instanceof Error ? e.message : "ungültiges JSON"}.`);
+    }
   }
 
   function hinzufuegen() {
@@ -88,11 +108,16 @@ export function Setup({ onStart }: { onStart: (ergebnis: SetupErgebnis) => void 
       alert("Jeder Spieler braucht einen eindeutigen Namen.");
       return;
     }
+    if (entwuerfe.some((e) => !Number.isFinite(e.startgeld) || e.startgeld < 0)) {
+      alert("Das Startgeld muss eine Zahl ≥ 0 sein.");
+      return;
+    }
     const spieler: Spielerkonfiguration[] = entwuerfe.map((e, i) => ({
       id: `s${i}`,
       name: e.name.trim(),
       farbe: e.farbe,
       steuerung: e.steuerung,
+      startgeld: e.startgeld,
       ki:
         e.steuerung === "ki"
           ? {
@@ -106,6 +131,7 @@ export function Setup({ onStart }: { onStart: (ergebnis: SetupErgebnis) => void 
                 name: e.name.trim(),
                 beschreibung: e.persoenlichkeit || "Spielt neutral, ohne besondere Note.",
                 beziehungen: {},
+                ...(e.kartenDaten ? { kartenDaten: e.kartenDaten } : {}),
               },
               gnade: e.gnade,
             }
@@ -140,6 +166,16 @@ export function Setup({ onStart }: { onStart: (ergebnis: SetupErgebnis) => void 
                 <option value="mensch">Mensch</option>
                 <option value="ki">Computer</option>
               </select>
+              <label className="startgeld-feld" title="Startgeld">
+                €
+                <input
+                  type="number"
+                  min={0}
+                  step={50}
+                  value={e.startgeld}
+                  onChange={(ev) => aktualisiere(i, { startgeld: Number(ev.target.value) })}
+                />
+              </label>
               <button className="entfernen" onClick={() => entfernen(i)} disabled={entwuerfe.length <= 2} title="Entfernen">
                 ✕
               </button>
@@ -204,15 +240,30 @@ export function Setup({ onStart }: { onStart: (ergebnis: SetupErgebnis) => void 
                 <input
                   type="text"
                   value={e.persoenlichkeit}
-                  onChange={(ev) => aktualisiere(i, { persoenlichkeit: ev.target.value })}
-                  placeholder="Persönlichkeit (Notiz, für die spätere LLM-Anbindung)"
-                  maxLength={80}
+                  onChange={(ev) => aktualisiere(i, { persoenlichkeit: ev.target.value, kartenName: null, kartenDaten: null })}
+                  placeholder="Persönlichkeit (für den Chat/die LLM-Anbindung)"
+                  maxLength={2000}
                 />
+                <label className="karte-import">
+                  Character Card (V2, JSON):{" "}
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={(ev) => {
+                      const datei = ev.target.files?.[0];
+                      if (datei) void karteImportieren(i, datei);
+                      ev.target.value = "";
+                    }}
+                  />
+                  {e.kartenName && <span className="karte-geladen">✓ {e.kartenName}</span>}
+                </label>
               </div>
             )}
           </div>
         ))}
       </div>
+
+      {kartenFehler && <p className="karte-fehler">{kartenFehler}</p>}
 
       <button onClick={hinzufuegen} disabled={entwuerfe.length >= 6}>
         + Spieler hinzufügen
