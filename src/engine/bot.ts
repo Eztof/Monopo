@@ -145,11 +145,20 @@ function listeBesitz(state: GameState, spielerId: SpielerId): string {
  */
 export function baueChatSystemPrompt(state: GameState, ki: KiSpieler, partner: Spieler | undefined): string {
   const p = ki.ki.persoenlichkeit;
+  // Wichtig: Spielernamen sind frei wählbar und können zufällig wie Pronomen aussehen (der Standard-
+  // Menschname im Setup ist sogar wörtlich "Du"!). Deshalb NIE bloß den Namen hinschreiben, sondern
+  // an jeder Stelle die Rolle in Großbuchstaben dranhängen — sonst verwechselt das Modell, wer von
+  // beiden "du" (die KI-Figur) ist und wer der Gesprächspartner.
+  const duLabel = `${ki.name} (DAS BIST DU)`;
+  const gegenueberLabel = partner ? `${partner.name} (DEIN GESPRÄCHSPARTNER, NICHT DU)` : "deinem Gesprächspartner";
   return [
-    `Du BIST "${p.name}", eine echte Person in einer laufenden Monopoly-Partie, und chattest gerade mit ${partner?.name ?? "einem Mitspieler"}.`,
+    `Du BIST "${p.name}", eine echte Person in einer laufenden Monopoly-Partie, und chattest gerade mit ${gegenueberLabel}.`,
     `Deine Persönlichkeit: ${p.beschreibung}`,
-    `Echter aktueller Spielstand — du (${ki.name}): ${ki.geld} Spielgeld, Besitz: ${listeBesitz(state, ki.id)}.`,
-    partner ? `${partner.name}: ${partner.geld} Spielgeld, Besitz: ${listeBesitz(state, partner.id)}.` : "",
+    `Echter aktueller Spielstand: ${duLabel} hat ${ki.geld} Spielgeld und besitzt: ${listeBesitz(state, ki.id)}.`,
+    partner ? `${gegenueberLabel} hat ${partner.geld} Spielgeld und besitzt: ${listeBesitz(state, partner.id)}.` : "",
+    partner
+      ? `Verwechsle die beiden nicht: Wenn du über Geld oder Besitz sprichst, ist ${duLabel} = deine eigenen Werte, ${gegenueberLabel} = die Werte der anderen Person — auch wenn der Name zufällig wie ein Pronomen klingt.`
+      : "",
     "Beziehe dich, wenn passend, auf diesen tatsächlichen Spielstand. Erfinde KEINE Straßennamen, Beträge oder Besitztümer, die hier nicht genannt sind.",
     `Bleib IMMER in dieser Rolle. Erwähne niemals, dass du eine KI, ein Sprachmodell, ein Chatbot oder eine Simulation bist — auch nicht in der Art "Ich bin die KI, die ${p.name} simuliert". Kein Meta-Kommentar, keine Erklärung deiner Antwort, keine Anführungszeichen um die eigene Rede, kein Ausstieg aus der Szene. Antworte direkt, ausschließlich als diese Person, so wie sie es selbst sagen würde.`,
     "Antworte kurz (ein bis drei Sätze), im Charakter, auf Deutsch.",
@@ -206,7 +215,11 @@ export function baueHandelKommentarPrompt(
 ): Array<{ rolle: "system" | "user"; text: string }> {
   const gibt = beschreibePaket(state, angebot.gebeFelder, angebot.gebeGeld, angebot.gebeFreiKarten);
   const will = beschreibePaket(state, angebot.willFelder, angebot.willGeld, angebot.willFreiKarten);
-  const perspektive = angebot.von === ki.id ? "Du bietest" : `${partner?.name ?? "Der andere"} bietet`;
+  // Dieselbe Vorsicht wie im Chat-Prompt: nie bloß den Namen, immer mit Rollen-Label — sonst kann
+  // "Lisa bietet" mit "Du bietest" verwechselt werden, wenn Lisa zufällig so heißt wie ein Pronomen.
+  const duLabel = `${ki.name} (DAS BIST DU)`;
+  const gegenueberLabel = `${partner?.name ?? "dein Gesprächspartner"} (DEIN GESPRÄCHSPARTNER, NICHT DU)`;
+  const perspektive = angebot.von === ki.id ? `${duLabel} bietest` : `${gegenueberLabel} bietet`;
   const ergebnisText = {
     vorschlag: "Das ist gerade als Vorschlag offen, noch nicht angenommen oder abgelehnt.",
     angenommen: "Dieser Handel wurde soeben angenommen.",
@@ -216,7 +229,7 @@ export function baueHandelKommentarPrompt(
     { rolle: "system", text: baueChatSystemPrompt(state, ki, partner) },
     {
       rolle: "user",
-      text: `(Systemhinweis, keine echte Nachricht von ${partner?.name ?? "deinem Gegenüber"}: ${perspektive} "${gibt}" für "${will}". ${ergebnisText} Kommentiere das kurz und im Charakter.)`,
+      text: `(Systemhinweis, keine echte Nachricht von ${gegenueberLabel}: ${perspektive} "${gibt}" für "${will}". ${ergebnisText} Kommentiere das kurz und im Charakter.)`,
     },
   ];
 }

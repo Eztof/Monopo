@@ -120,6 +120,29 @@ describe("LLM-Vorbereitung", () => {
     expect(prompt).toContain("niemals, dass du eine KI");
     expect(prompt).toContain("Du BIST");
   });
+
+  it("verwechselt die Spieler nicht, wenn der Mensch wörtlich 'Du' heißt (Standardname im Setup)", () => {
+    // Regressionstest: der Default-Spielername im Setup ist "Du" — das kollidiert mit dem
+    // deutschen Pronomen, das für die Rollenanrede benutzt wird. Das Modell darf trotzdem nicht
+    // Geldbeträge vertauschen (siehe Bugreport: Mensch hatte 1071, KI 216 — Antwort war andersrum).
+    const state = erzeugeSpiel({
+      spieler: [
+        { id: "mensch", name: "Du", farbe: "#f00", steuerung: "mensch" },
+        { id: "bot", name: "Lena", farbe: "#00f", steuerung: "ki", ki: kiProfil("normal") },
+      ],
+      seed: "namenskollision",
+    });
+    const bot = state.spieler.find((s) => s.id === "bot") as typeof state.spieler[number] & {
+      ki: NonNullable<(typeof state.spieler)[number]["ki"]>;
+    };
+    bot.geld = 216;
+    state.spieler.find((s) => s.id === "mensch")!.geld = 1071;
+    const prompt = baueChatSystemPrompt(state, bot, state.spieler.find((s) => s.id === "mensch"));
+
+    expect(prompt).toContain("Lena (DAS BIST DU) hat 216 Spielgeld");
+    expect(prompt).toContain("Du (DEIN GESPRÄCHSPARTNER, NICHT DU) hat 1071 Spielgeld");
+    expect(prompt).toContain("Verwechsle die beiden nicht");
+  });
 });
 
 describe("Handelskommentar", () => {
