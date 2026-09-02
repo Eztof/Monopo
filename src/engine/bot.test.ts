@@ -111,6 +111,15 @@ describe("LLM-Vorbereitung", () => {
     expect(prompt).toContain("Seeuferweg"); // Feld 6, gehört dem Menschen
     expect(prompt).toContain("Erfinde KEINE");
   });
+
+  it("verbietet ausdrücklich, aus der Rolle zu fallen oder sich als KI zu outen", () => {
+    const state = spiel();
+    const bot = state.spieler[1] as typeof state.spieler[1] & { ki: NonNullable<(typeof state.spieler)[1]["ki"]> };
+    const prompt = baueChatSystemPrompt(state, bot, state.spieler[0]);
+    expect(prompt).toContain("Bleib IMMER in dieser Rolle");
+    expect(prompt).toContain("niemals, dass du eine KI");
+    expect(prompt).toContain("Du BIST");
+  });
 });
 
 describe("Handelskommentar", () => {
