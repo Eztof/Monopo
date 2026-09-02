@@ -167,8 +167,44 @@ select {
   max-width: 220px;
 }
 
+.startgeld-feld {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.startgeld-feld input {
+  width: 70px;
+}
+
 .entfernen {
   margin-left: auto;
+}
+
+.karte-import {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.karte-import input[type="file"] {
+  font-size: 12px;
+  max-width: 220px;
+}
+
+.karte-geladen {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.karte-fehler {
+  color: var(--gefahr);
+  font-size: 13px;
+  text-align: left;
 }
 
 .seed-zeile {

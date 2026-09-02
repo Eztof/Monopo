@@ -19,9 +19,11 @@
 import { aktiverAkteur } from "./akteur";
 import { feldById, gruppeVonFeld, istKaufbar } from "./board";
 import { bewerteHandelsangebot, bietGrenze, kaufEntscheidung, schaetzeFeldWert } from "./bewertung";
-import type { Action, GameState, KaufbaresFeld, Spieler, SpielerId, StrassenFeld } from "./types";
+import type { Action, GameState, Handelsangebot, KaufbaresFeld, Spieler, SpielerId, StrassenFeld } from "./types";
 
-function istKi(spieler: Spieler | undefined): spieler is Spieler & { ki: NonNullable<Spieler["ki"]> } {
+type KiSpieler = Spieler & { ki: NonNullable<Spieler["ki"]> };
+
+function istKi(spieler: Spieler | undefined): spieler is KiSpieler {
   return !!spieler && spieler.steuerung === "ki" && !!spieler.ki;
 }
 
@@ -108,7 +110,7 @@ export function generiereKiAntwort(): string {
  * Sucht die jeweils letzte unbeantwortete private Chatnachricht an eine KI — unabhängig davon,
  * ob die Antwort dann von einem LLM (App.tsx) oder von generiereKiAntwort() (Platzhalter) kommt.
  */
-export function findeUnbeantworteteNachricht(state: GameState): { ki: Spieler & { ki: NonNullable<Spieler["ki"]> }; partnerId: SpielerId } | null {
+export function findeUnbeantworteteNachricht(state: GameState): { ki: KiSpieler; partnerId: SpielerId } | null {
   for (const akteur of state.spieler) {
     if (!istKi(akteur)) continue;
     let partnerId: SpielerId | null = null;
@@ -130,16 +132,92 @@ export function baueChatVerlauf(state: GameState, kiId: SpielerId, partnerId: Sp
     .map((e) => ({ rolle: e.akteur === kiId ? ("assistant" as const) : ("user" as const), text: e.text }));
 }
 
-/** System-Prompt fürs LLM: Persönlichkeit statt Spielregeln — die Engine entscheidet, das Modell redet nur. */
-export function baueChatSystemPrompt(ki: Spieler & { ki: NonNullable<Spieler["ki"]> }, partner: Spieler | undefined): string {
+/** Straßen/Bahnhöfe/Werke eines Spielers als Namensliste — fürs Grounding im LLM-Prompt. */
+function listeBesitz(state: GameState, spielerId: SpielerId): string {
+  const namen = state.brett.felder.filter((f) => istKaufbar(f) && state.besitz[f.id].eigentuemer === spielerId).map((f) => f.name);
+  return namen.length ? namen.join(", ") : "noch nichts";
+}
+
+/**
+ * System-Prompt fürs LLM: Persönlichkeit statt Spielregeln — die Engine entscheidet, das Modell
+ * redet nur. Enthält den echten Spielstand (Besitz/Geld beider Seiten), sonst erfindet das Modell
+ * mangels Information Straßennamen und Beträge, die es im Spiel gar nicht gibt.
+ */
+export function baueChatSystemPrompt(state: GameState, ki: KiSpieler, partner: Spieler | undefined): string {
   const p = ki.ki.persoenlichkeit;
   return [
-    `Du spielst die Figur "${p.name}" in einer Monopoly-Partie und chattest gerade mit ${partner?.name ?? "einem Mitspieler"}.`,
+    `Du spielst die Figur "${p.name}" in einer laufenden Monopoly-Partie und chattest gerade mit ${partner?.name ?? "einem Mitspieler"}.`,
     `Deine Persönlichkeit: ${p.beschreibung}`,
-    `Aktueller Kontostand: ${ki.geld}.`,
+    `Echter aktueller Spielstand — du (${ki.name}): ${ki.geld} Spielgeld, Besitz: ${listeBesitz(state, ki.id)}.`,
+    partner ? `${partner.name}: ${partner.geld} Spielgeld, Besitz: ${listeBesitz(state, partner.id)}.` : "",
+    "Beziehe dich, wenn passend, auf diesen tatsächlichen Spielstand. Erfinde KEINE Straßennamen, Beträge oder Besitztümer, die hier nicht genannt sind.",
     "Antworte kurz (ein bis drei Sätze), im Charakter, auf Deutsch.",
     "Du entscheidest hier NICHT über Käufe, Bauen oder Handel — das läuft automatisch in der Spiel-Engine. Hier chattest du nur; wenn du einen Handel vorschlagen willst, sag es in Worten, das eigentliche Angebot macht die Engine separat.",
-  ].join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** Ein Handelspaket als Text ("Ahornallee, 50 Spielgeld") — fürs Grounding im Handelskommentar. */
+function beschreibePaket(state: GameState, felder: number[], geld: number, freiKarten: number): string {
+  const teile = [
+    ...felder.map((id) => feldById(state.brett, id).name),
+    geld > 0 ? `${geld} Spielgeld` : "",
+    freiKarten > 0 ? `${freiKarten} Freikarte(n)` : "",
+  ].filter(Boolean);
+  return teile.length ? teile.join(", ") : "nichts";
+}
+
+/**
+ * Sucht einen Handel, den eine KI noch per Chat kommentieren sollte — nur, wenn ein Mensch beteiligt
+ * ist (Kommentare zwischen zwei Bots sähe ohnehin niemand). Bevorzugt den zuletzt abgeschlossenen
+ * Handel; ist der schon kommentiert (oder betrifft er keine KI/keinen Menschen), wird stattdessen
+ * nach einem noch unkommentierten eigenen Vorschlag der KI gesucht. `kommentiert` verhindert, dass
+ * derselbe Handel mehrfach kommentiert wird — der Aufrufer (App.tsx) trägt die ID dort ein.
+ */
+export function findeUnkommentiertenHandel(
+  state: GameState,
+  kommentiert: ReadonlySet<string>,
+): { ki: KiSpieler; partnerId: SpielerId; angebot: Handelsangebot; ergebnis: "vorschlag" | "angenommen" | "abgelehnt" } | null {
+  const letzterHandel = state.handelsVerlauf.at(-1);
+  if (letzterHandel && !kommentiert.has(letzterHandel.id)) {
+    const von = state.spieler.find((p) => p.id === letzterHandel.von);
+    const an = state.spieler.find((p) => p.id === letzterHandel.an);
+    if (istKi(von) && an?.steuerung === "mensch") return { ki: von, partnerId: letzterHandel.an, angebot: letzterHandel, ergebnis: letzterHandel.ergebnis };
+    if (istKi(an) && von?.steuerung === "mensch") return { ki: an, partnerId: letzterHandel.von, angebot: letzterHandel, ergebnis: letzterHandel.ergebnis };
+  }
+  for (const angebot of state.offeneAngebote) {
+    if (kommentiert.has(angebot.id)) continue;
+    const von = state.spieler.find((p) => p.id === angebot.von);
+    const an = state.spieler.find((p) => p.id === angebot.an);
+    if (istKi(von) && an?.steuerung === "mensch") return { ki: von, partnerId: angebot.an, angebot, ergebnis: "vorschlag" };
+  }
+  return null;
+}
+
+/** Prompt fürs Kommentieren eines Handels — dieselbe Grounding-Basis wie der normale Chat-Prompt. */
+export function baueHandelKommentarPrompt(
+  state: GameState,
+  ki: KiSpieler,
+  partner: Spieler | undefined,
+  angebot: Handelsangebot,
+  ergebnis: "vorschlag" | "angenommen" | "abgelehnt",
+): Array<{ rolle: "system" | "user"; text: string }> {
+  const gibt = beschreibePaket(state, angebot.gebeFelder, angebot.gebeGeld, angebot.gebeFreiKarten);
+  const will = beschreibePaket(state, angebot.willFelder, angebot.willGeld, angebot.willFreiKarten);
+  const perspektive = angebot.von === ki.id ? "Du bietest" : `${partner?.name ?? "Der andere"} bietet`;
+  const ergebnisText = {
+    vorschlag: "Das ist gerade als Vorschlag offen, noch nicht angenommen oder abgelehnt.",
+    angenommen: "Dieser Handel wurde soeben angenommen.",
+    abgelehnt: "Dieser Handel wurde soeben abgelehnt.",
+  }[ergebnis];
+  return [
+    { rolle: "system", text: baueChatSystemPrompt(state, ki, partner) },
+    {
+      rolle: "user",
+      text: `(Systemhinweis, keine echte Nachricht von ${partner?.name ?? "deinem Gegenüber"}: ${perspektive} "${gibt}" für "${will}". ${ergebnisText} Kommentiere das kurz und im Charakter.)`,
+    },
+  ];
 }
 
 /** Beantwortet die jeweils letzte unbeantwortete private Nachricht an eine KI (Platzhalter-Fallback ohne LLM). */

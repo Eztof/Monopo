@@ -9,6 +9,8 @@ export interface Spielerkonfiguration {
   farbe: string;
   steuerung: "mensch" | "ki";
   ki?: KiProfil;
+  /** Individuelles Startgeld; fehlt es, gilt SpielkonfigurationOptionen.startgeld (Default 1500). */
+  startgeld?: number;
 }
 
 export interface SpielkonfigurationOptionen {
@@ -56,7 +58,7 @@ function zufallsSeed(): string {
 /** Baut aus einer Spielerliste + Brett einen validen, frischen GameState. */
 export function erzeugeSpiel(optionen: SpielkonfigurationOptionen): GameState {
   const brett = optionen.brett ?? standardBrett;
-  const startgeld = optionen.startgeld ?? 1500;
+  const startgeldDefault = optionen.startgeld ?? 1500;
   const seed = optionen.seed ?? zufallsSeed();
 
   if (optionen.spieler.length < 2) {
@@ -68,7 +70,7 @@ export function erzeugeSpiel(optionen: SpielkonfigurationOptionen): GameState {
     name: s.name,
     farbe: s.farbe,
     position: 0,
-    geld: startgeld,
+    geld: s.startgeld ?? startgeldDefault,
     imGefaengnis: false,
     gefaengnisRunden: 0,
     freiKarten: 0,

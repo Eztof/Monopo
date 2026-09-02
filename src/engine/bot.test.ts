@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baueChatSystemPrompt, baueChatVerlauf, findeUnbeantworteteNachricht, naechsteAktion } from "./bot";
+import { baueChatSystemPrompt, baueChatVerlauf, baueHandelKommentarPrompt, findeUnbeantworteteNachricht, findeUnkommentiertenHandel, naechsteAktion } from "./bot";
 import { schwierigkeitsGrade, erzeugeSpiel } from "./state";
 import type { GameState, KiProfil } from "./types";
 
@@ -95,9 +95,79 @@ describe("LLM-Vorbereitung", () => {
     const state = spiel();
     const bot = state.spieler[1] as typeof state.spieler[1] & { ki: NonNullable<(typeof state.spieler)[1]["ki"]> };
     bot.ki.persoenlichkeit.beschreibung = "Frech und selbstbewusst.";
-    const prompt = baueChatSystemPrompt(bot, state.spieler[0]);
+    const prompt = baueChatSystemPrompt(state, bot, state.spieler[0]);
     expect(prompt).toContain("Frech und selbstbewusst.");
     expect(prompt).toContain("Mensch");
     expect(prompt).not.toContain("bewertungstiefe");
+  });
+
+  it("nennt echten Besitz beider Seiten statt nichts (Grounding gegen Halluzination)", () => {
+    const state = spiel();
+    state.besitz[1].eigentuemer = "bot";
+    state.besitz[6].eigentuemer = "mensch";
+    const bot = state.spieler[1] as typeof state.spieler[1] & { ki: NonNullable<(typeof state.spieler)[1]["ki"]> };
+    const prompt = baueChatSystemPrompt(state, bot, state.spieler[0]);
+    expect(prompt).toContain("Ulmenweg"); // Feld 1, gehört der KI
+    expect(prompt).toContain("Seeuferweg"); // Feld 6, gehört dem Menschen
+    expect(prompt).toContain("Erfinde KEINE");
+  });
+});
+
+describe("Handelskommentar", () => {
+  it("findet einen abgeschlossenen Handel mit Mensch-Beteiligung zum Kommentieren", () => {
+    const state = spiel();
+    state.handelsVerlauf.push({
+      id: "h1",
+      von: "bot",
+      an: "mensch",
+      gebeFelder: [],
+      gebeGeld: 50,
+      gebeFreiKarten: 0,
+      willFelder: [1],
+      willGeld: 0,
+      willFreiKarten: 0,
+      ergebnis: "angenommen",
+    });
+    const ziel = findeUnkommentiertenHandel(state, new Set());
+    expect(ziel?.ki.id).toBe("bot");
+    expect(ziel?.partnerId).toBe("mensch");
+    expect(ziel?.ergebnis).toBe("angenommen");
+  });
+
+  it("ignoriert bereits kommentierte Handel", () => {
+    const state = spiel();
+    state.handelsVerlauf.push({
+      id: "h1",
+      von: "bot",
+      an: "mensch",
+      gebeFelder: [],
+      gebeGeld: 50,
+      gebeFreiKarten: 0,
+      willFelder: [],
+      willGeld: 0,
+      willFreiKarten: 0,
+      ergebnis: "angenommen",
+    });
+    expect(findeUnkommentiertenHandel(state, new Set(["h1"]))).toBeNull();
+  });
+
+  it("baut einen Kommentar-Prompt mit den echten Paketinhalten", () => {
+    const state = spiel();
+    const bot = state.spieler[1] as typeof state.spieler[1] & { ki: NonNullable<(typeof state.spieler)[1]["ki"]> };
+    const angebot = {
+      id: "h1",
+      von: "bot",
+      an: "mensch",
+      gebeFelder: [1],
+      gebeGeld: 0,
+      gebeFreiKarten: 0,
+      willFelder: [],
+      willGeld: 50,
+      willFreiKarten: 0,
+    };
+    const nachrichten = baueHandelKommentarPrompt(state, bot, state.spieler[0], angebot, "angenommen");
+    expect(nachrichten[1].text).toContain("Ulmenweg");
+    expect(nachrichten[1].text).toContain("50 Spielgeld");
+    expect(nachrichten[1].text).toContain("angenommen");
   });
 });

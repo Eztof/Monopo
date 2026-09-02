@@ -61,12 +61,21 @@ des Modells blockiert nie den Bot-Zug. Ein Fehlertext unter dem Eingabefeld
 zeigt an, wenn eine Anfrage fehlgeschlagen ist (Server nicht erreichbar,
 Timeout nach 60s, o.ä.).
 
-Was ans Modell geht: nur die Persönlichkeit (Name, Beschreibung) und der
-private Chatverlauf mit genau diesem einen Gegenüber (`baueChatSystemPrompt`/
-`baueChatVerlauf` in `bot.ts`) — keine Spielregeln, keine geheimen Infos
-anderer Spieler. Das Modell entscheidet nichts (kauft nichts, baut nichts,
-handelt nichts) — es liefert nur den Chattext dazu; alle Spielentscheidungen
-laufen weiter über die Heuristik in `bot.ts`.
+Was ans Modell geht: die Persönlichkeit (Name, Beschreibung), der echte
+Spielstand (eigener und gegnerischer Besitz + Kontostand — sonst erfindet
+das Modell mangels Information Straßennamen, die es im Spiel gar nicht
+gibt) und der private Chatverlauf mit genau diesem einen Gegenüber
+(`baueChatSystemPrompt`/`baueChatVerlauf` in `bot.ts`) — keine Spielregeln,
+keine geheimen Infos. Das Modell entscheidet nichts (kauft nichts, baut
+nichts, handelt nichts) — es liefert nur den Chattext dazu, auch wenn es
+z.B. ein Handelsangebot kommentiert (`baueHandelKommentarPrompt`); alle
+Spielentscheidungen laufen weiter über die Heuristik in `bot.ts`.
+
+**Persönlichkeiten**: entweder frei im Textfeld beschreiben, oder eine
+SillyTavern Character Card V2 als JSON-Datei importieren (Export aus
+SillyTavern als JSON, nicht die PNG-Karte) — Name und Beschreibung werden
+automatisch übernommen. Der Import ist rein technisch (liest nur Text aus);
+was inhaltlich in der Karte steht, verantwortet, wer sie erstellt/importiert.
 
 ## Starten
 
@@ -90,10 +99,12 @@ npm test          # Engine-Tests (vitest)
    handeln auch von sich aus miteinander bzw. mit dem Menschen
    (`initiativeAktion` in `bot.ts`).
 4. ✅ LLM-Layer für Chat: KoboldCpp/OpenAI-kompatible Anbindung (`llm.ts`),
+   grounded im echten Spielstand, kommentiert auch Handelsangebote/-ergebnisse.
    Fallback auf Platzhalter-Sätze ohne konfigurierten Server. Verhandlungs-
    *entscheidungen* (Kauf/Bau/Handel) laufen weiterhin über die Heuristik in
    `bot.ts` — das Modell liefert nur den Chattext dazu, siehe unten.
-5. ⏳ Persönlichkeiten importieren (SillyTavern Character Cards V2), Feintuning
+5. ✅ Persönlichkeiten: freier Beschreibungstext oder SillyTavern Character
+   Card V2 (JSON) importieren. ⏳ Feintuning steht noch aus.
 
 ### Stand der LLM-Anbindung / nächste Schritte
 
@@ -104,16 +115,18 @@ npm test          # Engine-Tests (vitest)
 - `generiereKiAntwort()` in `bot.ts` ist der Fallback, wenn kein Endpunkt
   konfiguriert ist oder die Anfrage fehlschlägt — das Spiel hängt nie an
   einer LLM-Antwort.
-- `baueChatSystemPrompt`/`baueChatVerlauf` (`bot.ts`) bauen Prompt und
-  Verlauf ausschließlich aus `KiProfil.persoenlichkeit` und dem privaten
-  Chat-Thread — bewusst ohne Spielregeln oder fremde Geheiminformationen.
-- Noch offen: das Modell an echte Spielentscheidungen (Handelsvorschläge
-  formulieren/bewerten, Kaufentscheidungen kommentieren) anzubinden, dafür
+- `baueChatSystemPrompt`/`baueChatVerlauf`/`baueHandelKommentarPrompt`
+  (`bot.ts`) bauen Prompt und Verlauf aus `KiProfil.persoenlichkeit` UND dem
+  echten Spielstand (Besitz/Geld beider Seiten) — bewusst ohne Spielregeln
+  oder fremde Geheiminformationen, aber grounded genug, dass sich das Modell
+  keine Straßennamen/Beträge ausdenkt.
+- `findeUnkommentiertenHandel` (`bot.ts`) erkennt Handelsvorschläge/-ergebnisse,
+  die eine KI noch kommentieren sollte (nur wenn ein Mensch beteiligt ist).
+- Noch offen: das Modell an echte Spielentscheidungen anzubinden (nicht nur
+  kommentieren, sondern z.B. eigene Handelsangebote formulieren), dafür
   liegen `KiKontext`/`KiEntscheidung` (`types.ts`) bereits bereit — die
   Engine würde dem Modell eine vorgerechnete Empfehlung plus Alternativen
   (`bewertung.ts`) liefern, das Modell wählt nur noch aus und formuliert.
-- `KiProfil.persoenlichkeit` trägt schon ein optionales `kartenDaten`-Feld für
-  importierte SillyTavern Character Cards V2 (noch keine Import-UI).
 
 ## Bekannte Vereinfachungen
 

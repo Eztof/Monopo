@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { aktiverAkteur } from "./engine/akteur";
-import { baueChatSystemPrompt, baueChatVerlauf, findeUnbeantworteteNachricht, generiereKiAntwort, naechsteAktion } from "./engine/bot";
+import {
+  baueChatSystemPrompt,
+  baueChatVerlauf,
+  baueHandelKommentarPrompt,
+  findeUnbeantworteteNachricht,
+  findeUnkommentiertenHandel,
+  generiereKiAntwort,
+  naechsteAktion,
+} from "./engine/bot";
 import { dispatch } from "./engine/reducer";
 import { erzeugeSpiel } from "./engine/state";
 import type { Action, GameState, SpielerId } from "./engine/types";
@@ -73,6 +81,9 @@ function App() {
   const [llmFehler, setLlmFehler] = useState<string | null>(null);
   const [llmWartetFuer, setLlmWartetFuer] = useState<SpielerId | null>(null);
   const llmLaeuftRef = useRef(false);
+  // Handel-IDs, zu denen die KI schon (versucht hat zu) kommentieren — verhindert Dauerschleifen
+  // auf denselben Handel, unabhängig davon, ob der LLM-Aufruf klappt oder auf den Platzhalter fällt.
+  const kommentierteHandelIdsRef = useRef<Set<string>>(new Set());
   // Hält den jeweils aktuellen Spielstand für die LLM-Callbacks bereit — ein Fetch kann Sekunden
   // dauern, in denen der Mensch längst weitergespielt haben kann. dispatch() greift immer auf den
   // frischen Stand zu, nie auf den zum Anfrage-Zeitpunkt eingefangenen (sonst könnte der Bot-Loop
@@ -116,48 +127,64 @@ function App() {
   }
 
   // Der Bot-Zug läuft asynchron außerhalb der Engine, ruft dispatch() genau wie ein Mensch.
-  // Ein unbeantworteter privater Chat hat Vorrang und geht — falls konfiguriert — über ein
-  // echtes LLM statt der eingebauten Platzhalter-Sätze.
+  // Ein unbeantworteter privater Chat bzw. ein unkommentierter Handel hat Vorrang und geht —
+  // falls konfiguriert — über ein echtes LLM statt der eingebauten Platzhalter-Sätze.
   useEffect(() => {
     if (!game || game.phase.typ === "spiel-ende") return;
     if (llmLaeuftRef.current) return;
 
+    // Schickt eine LLM-generierte (oder bei Fehler/Timeout: platzhalter-) Chatnachricht von ki an
+    // partnerId. Läuft immer gegen den frischesten Spielstand (gameRef), nie gegen den zum
+    // Anfrage-Zeitpunkt eingefangenen — sonst könnte der Bot-Loop hängen bleiben, falls der Mensch
+    // währenddessen weitergespielt hat. Gibt die Effekt-Cleanup-Funktion zurück.
+    const sendeLlmChat = (kiId: SpielerId, partnerId: SpielerId, nachrichten: Array<{ rolle: "system" | "user" | "assistant"; text: string }>) => {
+      let sichtbar = true;
+      llmLaeuftRef.current = true;
+      setLlmWartetFuer(kiId);
+
+      const antwortAnwenden = (text: string) => {
+        llmLaeuftRef.current = false;
+        if (sichtbar) setLlmWartetFuer(null);
+        const aktuell = gameRef.current;
+        if (!aktuell) return; // Spiel wurde inzwischen zurückgesetzt
+        const action: Action = { typ: "chat", von: kiId, an: partnerId, text };
+        const ergebnis = dispatch(aktuell, action);
+        spiele(soundFuerAction(action, ergebnis.ok, ergebnis.ok ? ergebnis.state : null));
+        if (ergebnis.ok) setGame(ergebnis.state);
+      };
+
+      frageLlm(llmEndpunkt.trim(), nachrichten)
+        .then((text) => {
+          if (sichtbar) setLlmFehler(null);
+          antwortAnwenden(text);
+        })
+        .catch((e) => {
+          if (sichtbar) setLlmFehler(e instanceof LlmFehler ? e.message : "LLM-Anfrage fehlgeschlagen.");
+          // Spiel darf nicht hängen bleiben: Platzhalter-Antwort statt der KI-Stimme.
+          antwortAnwenden(generiereKiAntwort());
+        });
+      return () => {
+        sichtbar = false;
+      };
+    };
+
     if (llmEndpunkt.trim()) {
-      const ziel = findeUnbeantworteteNachricht(game);
-      if (ziel) {
-        let sichtbar = true;
-        llmLaeuftRef.current = true;
-        setLlmWartetFuer(ziel.ki.id);
-        const partner = game.spieler.find((p) => p.id === ziel.partnerId);
+      const chatZiel = findeUnbeantworteteNachricht(game);
+      if (chatZiel) {
+        const partner = game.spieler.find((p) => p.id === chatZiel.partnerId);
         const nachrichten = [
-          { rolle: "system" as const, text: baueChatSystemPrompt(ziel.ki, partner) },
-          ...baueChatVerlauf(game, ziel.ki.id, ziel.partnerId),
+          { rolle: "system" as const, text: baueChatSystemPrompt(game, chatZiel.ki, partner) },
+          ...baueChatVerlauf(game, chatZiel.ki.id, chatZiel.partnerId),
         ];
+        return sendeLlmChat(chatZiel.ki.id, chatZiel.partnerId, nachrichten);
+      }
 
-        const antwortAnwenden = (text: string) => {
-          llmLaeuftRef.current = false;
-          if (sichtbar) setLlmWartetFuer(null);
-          const aktuell = gameRef.current;
-          if (!aktuell) return; // Spiel wurde inzwischen zurückgesetzt
-          const action: Action = { typ: "chat", von: ziel.ki.id, an: ziel.partnerId, text };
-          const ergebnis = dispatch(aktuell, action);
-          spiele(soundFuerAction(action, ergebnis.ok, ergebnis.ok ? ergebnis.state : null));
-          if (ergebnis.ok) setGame(ergebnis.state);
-        };
-
-        frageLlm(llmEndpunkt.trim(), nachrichten)
-          .then((text) => {
-            if (sichtbar) setLlmFehler(null);
-            antwortAnwenden(text);
-          })
-          .catch((e) => {
-            if (sichtbar) setLlmFehler(e instanceof LlmFehler ? e.message : "LLM-Anfrage fehlgeschlagen.");
-            // Spiel darf nicht hängen bleiben: Platzhalter-Antwort statt der KI-Stimme.
-            antwortAnwenden(generiereKiAntwort());
-          });
-        return () => {
-          sichtbar = false;
-        };
+      const handelZiel = findeUnkommentiertenHandel(game, kommentierteHandelIdsRef.current);
+      if (handelZiel) {
+        kommentierteHandelIdsRef.current.add(handelZiel.angebot.id); // sofort markieren, bevor die Antwort da ist
+        const partner = game.spieler.find((p) => p.id === handelZiel.partnerId);
+        const nachrichten = baueHandelKommentarPrompt(game, handelZiel.ki, partner, handelZiel.angebot, handelZiel.ergebnis);
+        return sendeLlmChat(handelZiel.ki.id, handelZiel.partnerId, nachrichten);
       }
     }
 
