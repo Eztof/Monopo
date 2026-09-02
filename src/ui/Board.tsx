@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { gruppeVonFeld } from "../engine/board";
 import type { Feld, GameState } from "../engine/types";
+import { hexZuRgba } from "./farbe";
 
 /** Position im 11x11-Perimeter-Grid, klassisches Monopoly-Layout. */
 function gridPos(id: number): { row: number; col: number } {
@@ -14,7 +15,7 @@ function gridPos(id: number): { row: number; col: number } {
   return { col: 11, row: 1 + (id - 30) };
 }
 
-function feldKurzInfo(feld: Feld): string {
+function feldKurzInfo(feld: Feld, topf: number): string {
   switch (feld.art) {
     case "strasse":
     case "bahnhof":
@@ -22,12 +23,22 @@ function feldKurzInfo(feld: Feld): string {
       return `${feld.kaufpreis}`;
     case "steuer":
       return `${feld.betrag}`;
+    case "frei-parken":
+      return topf > 0 ? `Topf: ${topf}` : "";
     default:
       return "";
   }
 }
 
-export function Board({ state, center }: { state: GameState; center: ReactNode }) {
+export function Board({
+  state,
+  center,
+  onFieldClick,
+}: {
+  state: GameState;
+  center: ReactNode;
+  onFieldClick: (feldId: number) => void;
+}) {
   return (
     <div className="brett">
       {state.brett.felder.map((feld) => {
@@ -37,22 +48,26 @@ export function Board({ state, center }: { state: GameState; center: ReactNode }
         const eigentuemer = bes?.eigentuemer ? state.spieler.find((s) => s.id === bes.eigentuemer) : undefined;
         const spielerHier = state.spieler.filter((s) => !s.bankrott && s.position === feld.id);
         return (
-          <div
+          <button
             key={feld.id}
+            type="button"
             className="feld"
-            style={{ gridRow: row, gridColumn: col }}
+            style={{ gridRow: row, gridColumn: col, background: eigentuemer ? hexZuRgba(eigentuemer.farbe, bes?.belastet ? 0.18 : 0.4) : undefined }}
             title={feld.name}
+            onClick={() => onFieldClick(feld.id)}
           >
             {gruppe && <div className="feld-farbe" style={{ background: gruppe.farbe }} />}
             <div className="feld-name">{feld.name}</div>
-            <div className="feld-info">{feldKurzInfo(feld)}</div>
+            <div className="feld-info">{feldKurzInfo(feld, state.frueParkenTopf)}</div>
             {bes && bes.haeuser > 0 && (
               <div className="feld-haeuser">{bes.haeuser === 5 ? "🏨" : "🏠".repeat(bes.haeuser)}</div>
             )}
             {eigentuemer && (
-              <div className="feld-eigentuemer" style={{ background: eigentuemer.farbe }} title={`Besitzer: ${eigentuemer.name}`} />
+              <div className="feld-eigentuemer-name" style={{ color: eigentuemer.farbe }}>
+                {eigentuemer.name}
+              </div>
             )}
-            {bes?.belastet && <div className="feld-hypothek">H</div>}
+            {bes?.belastet && <div className="feld-hypothek">belastet</div>}
             {spielerHier.length > 0 && (
               <div className="feld-figuren">
                 {spielerHier.map((s) => (
@@ -60,7 +75,7 @@ export function Board({ state, center }: { state: GameState; center: ReactNode }
                 ))}
               </div>
             )}
-          </div>
+          </button>
         );
       })}
       <div className="brett-mitte" style={{ gridRow: "2 / 11", gridColumn: "2 / 11" }}>

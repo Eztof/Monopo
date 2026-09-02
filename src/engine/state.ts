@@ -26,6 +26,8 @@ export const schwierigkeitsGrade = {
     blockierneigung: 0.1,
     handelsmarge: 0.9,
     fehlerquote: 0.35,
+    risikobereitschaft: 0.2,
+    baufreude: 0.3,
   },
   mittel: {
     bewertungstiefe: 0.6,
@@ -33,6 +35,8 @@ export const schwierigkeitsGrade = {
     blockierneigung: 0.4,
     handelsmarge: 1.05,
     fehlerquote: 0.12,
+    risikobereitschaft: 0.5,
+    baufreude: 0.55,
   },
   schwer: {
     bewertungstiefe: 1.0,
@@ -40,6 +44,8 @@ export const schwierigkeitsGrade = {
     blockierneigung: 0.75,
     handelsmarge: 1.2,
     fehlerquote: 0.02,
+    risikobereitschaft: 0.8,
+    baufreude: 0.8,
   },
 } as const satisfies Record<string, KiProfil["schwierigkeit"]>;
 
@@ -99,6 +105,8 @@ export function erzeugeSpiel(optionen: SpielkonfigurationOptionen): GameState {
     hotelsImVorrat: brett.hotelsImVorrat,
     phase: { typ: "wuerfeln" },
     offeneAngebote: [],
+    handelsVerlauf: [],
+    frueParkenTopf: 0,
     letzterWurf: null,
     paschInFolge: 0,
     ereignisStapel,
