@@ -33,8 +33,40 @@ Regelwerk und KI sind strikt getrennt:
   Klick eines Menschen — die Engine unterscheidet nicht, woher eine Action
   kommt. Klick auf ein Brettfeld öffnet die Feldkarte (`FieldCard.tsx`) mit
   Mietstaffel und — falls eigenes Feld, eigener Zug — dem Bauen/Verkaufen/
-  Hypothek-Menü. Handel (`TradePanel.tsx`) und Chat (`Log.tsx`) laufen
-  unabhängig vom Zug nebenher.
+  Hypothek-Menü. Handel (`TradePanel.tsx`) läuft unabhängig vom Zug nebenher,
+  genau wie Chat — dafür gibt es pro Gegner ein eigenes `ChatFenster.tsx`,
+  kein Gruppenchat. `llm.ts` ist der einzige Ort, der mit einem externen
+  Server spricht (siehe unten); alles andere bleibt synchron.
+
+## KI-Sprachmodell anschließen (KoboldCpp o.ä.)
+
+Im Spiel unter "KI-Sprachmodell" die URL eines lokal laufenden,
+OpenAI-kompatiblen Servers eintragen — für KoboldCpp reicht:
+
+```bash
+koboldcpp --config Cydonia.kcpps   # oder per GUI/Doppelklick wie gewohnt starten
+```
+
+Sobald KoboldCpp läuft (Standard: `http://localhost:5001`), einfach diese
+URL ins Feld eintragen — kein Neustart des Spiels nötig, die Einstellung
+greift beim nächsten unbeantworteten Chat. SillyTavern wird **nicht**
+gebraucht: ST ist nur ein Frontend, kein API-Server, den man "anbinden"
+könnte. `chatcompletionsadapter: "AutoGuess"` in der `.kcpps`-Datei reicht,
+damit KoboldCpp den Endpunkt `/v1/chat/completions` bereitstellt.
+
+Bleibt das Feld leer oder ist der Server nicht erreichbar, antworten die
+KI-Gegner weiter mit den eingebauten Platzhalter-Sätzen (`generiereKiAntwort`
+in `bot.ts`) — das Spiel bleibt so oder so spielbar, ein Fehler beim Laden
+des Modells blockiert nie den Bot-Zug. Ein Fehlertext unter dem Eingabefeld
+zeigt an, wenn eine Anfrage fehlgeschlagen ist (Server nicht erreichbar,
+Timeout nach 60s, o.ä.).
+
+Was ans Modell geht: nur die Persönlichkeit (Name, Beschreibung) und der
+private Chatverlauf mit genau diesem einen Gegenüber (`baueChatSystemPrompt`/
+`baueChatVerlauf` in `bot.ts`) — keine Spielregeln, keine geheimen Infos
+anderer Spieler. Das Modell entscheidet nichts (kauft nichts, baut nichts,
+handelt nichts) — es liefert nur den Chattext dazu; alle Spielentscheidungen
+laufen weiter über die Heuristik in `bot.ts`.
 
 ## Starten
 
@@ -57,30 +89,31 @@ npm test          # Engine-Tests (vitest)
    (nicht an die Zugreihenfolge gebunden), mit sichtbarem Verlauf. KIs
    handeln auch von sich aus miteinander bzw. mit dem Menschen
    (`initiativeAktion` in `bot.ts`).
-4. ⏳ LLM-Layer für Verhandlungstext und Chat
-5. ⏳ Persönlichkeiten, SillyTavern Character Cards V2, Feintuning
+4. ✅ LLM-Layer für Chat: KoboldCpp/OpenAI-kompatible Anbindung (`llm.ts`),
+   Fallback auf Platzhalter-Sätze ohne konfigurierten Server. Verhandlungs-
+   *entscheidungen* (Kauf/Bau/Handel) laufen weiterhin über die Heuristik in
+   `bot.ts` — das Modell liefert nur den Chattext dazu, siehe unten.
+5. ⏳ Persönlichkeiten importieren (SillyTavern Character Cards V2), Feintuning
 
-### Vorbereitung für Stufe 4/5 (LLM-Anbindung)
+### Stand der LLM-Anbindung / nächste Schritte
 
-Damit der Umstieg kein Rewrite wird, ist das schon jetzt so geschnitten:
-
-- `KiKontext`/`KiEntscheidung` (`types.ts`) liegen bereit: Die Engine liefert
-  dem Modell eine vorgerechnete Empfehlung plus Alternativen
-  (`bewertung.ts`), das Modell wählt nur noch aus und formuliert den Text
-  dazu — es rechnet nie selbst.
-- Die aktuellen Platzhalter sind bewusst an genau einer Stelle isoliert:
-  `generiereKiAntwort()` in `bot.ts` erzeugt die (noch zufälligen) Chat-Antworten.
-  Das ist die Stelle, die später durch einen echten API-Aufruf ersetzt wird.
-- Chat ist bereits als Einzelgespräch modelliert (`Action.chat` mit
-  optionalem `an`-Feld, siehe unten) — jede KI-Persönlichkeit bekommt ihren
-  eigenen Gesprächsverlauf, kein Gruppenchat, den ein LLM ohnehin nur
-  verwirrend fände.
+- `llm.ts` ist der einzige Ort, der mit einem externen Server spricht
+  (`frageLlm`); die Engine bleibt synchron (`dispatch` blockiert nie), der
+  async-Aufruf sitzt in `App.tsx`, mit `gameRef` gegen Race Conditions,
+  falls der Mensch weiterspielt, während eine Antwort noch aussteht.
+- `generiereKiAntwort()` in `bot.ts` ist der Fallback, wenn kein Endpunkt
+  konfiguriert ist oder die Anfrage fehlschlägt — das Spiel hängt nie an
+  einer LLM-Antwort.
+- `baueChatSystemPrompt`/`baueChatVerlauf` (`bot.ts`) bauen Prompt und
+  Verlauf ausschließlich aus `KiProfil.persoenlichkeit` und dem privaten
+  Chat-Thread — bewusst ohne Spielregeln oder fremde Geheiminformationen.
+- Noch offen: das Modell an echte Spielentscheidungen (Handelsvorschläge
+  formulieren/bewerten, Kaufentscheidungen kommentieren) anzubinden, dafür
+  liegen `KiKontext`/`KiEntscheidung` (`types.ts`) bereits bereit — die
+  Engine würde dem Modell eine vorgerechnete Empfehlung plus Alternativen
+  (`bewertung.ts`) liefern, das Modell wählt nur noch aus und formuliert.
 - `KiProfil.persoenlichkeit` trägt schon ein optionales `kartenDaten`-Feld für
-  importierte SillyTavern Character Cards V2.
-- Wichtige Einschränkung, die beim Bau des LLM-Layers zu beachten ist: die
-  Engine ist synchron und darf es bleiben (`dispatch` blockiert nie). Ein
-  LLM-Aufruf ist async — der wird künftig in der UI-Schicht (dort, wo aktuell
-  `naechsteAktion()` synchron aufgerufen wird) verortet, nicht im Reducer.
+  importierte SillyTavern Character Cards V2 (noch keine Import-UI).
 
 ## Bekannte Vereinfachungen
 

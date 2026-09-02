@@ -66,8 +66,14 @@ function spieler(state: GameState, id: SpielerId): Spieler {
   return s;
 }
 
-function eintragen(state: GameState, text: string, akteur: SpielerId | null = null, sichtbarFuer: Ereignis["sichtbarFuer"] = "alle"): void {
-  state.log.push({ runde: state.runde, akteur, text, sichtbarFuer });
+function eintragen(
+  state: GameState,
+  text: string,
+  akteur: SpielerId | null = null,
+  sichtbarFuer: Ereignis["sichtbarFuer"] = "alle",
+  art?: Ereignis["art"],
+): void {
+  state.log.push({ runde: state.runde, akteur, text, sichtbarFuer, art });
 }
 
 function ziehZaehler(state: GameState): number {
@@ -770,7 +776,7 @@ function verarbeite(state: GameState, action: Action): void {
       );
       const id = `handel-${state.ziehungsZaehler}-${state.offeneAngebote.length}`;
       state.offeneAngebote.push({ ...angebot, id });
-      eintragen(state, `${von.name} bietet ${an.name} einen Handel an.`, von.id, [von.id, an.id]);
+      eintragen(state, `${von.name} bietet ${an.name} einen Handel an.`, von.id, "alle");
       return;
     }
 
@@ -801,7 +807,7 @@ function verarbeite(state: GameState, action: Action): void {
 
       state.offeneAngebote = state.offeneAngebote.filter((a) => a.id !== angebot.id);
       state.handelsVerlauf.push({ ...angebot, ergebnis: "angenommen" });
-      eintragen(state, `${an.name} nimmt den Handel von ${von.name} an.`, an.id, [von.id, an.id]);
+      eintragen(state, `${an.name} nimmt den Handel von ${von.name} an.`, an.id, "alle");
       return;
     }
 
@@ -810,15 +816,12 @@ function verarbeite(state: GameState, action: Action): void {
       if (!angebot) return;
       state.offeneAngebote = state.offeneAngebote.filter((a) => a.id !== action.angebotId);
       state.handelsVerlauf.push({ ...angebot, ergebnis: "abgelehnt" });
-      eintragen(state, action.nachricht ? `Handel abgelehnt: ${action.nachricht}` : "Ein Handelsangebot wurde abgelehnt.", null, [
-        angebot.von,
-        angebot.an,
-      ]);
+      eintragen(state, action.nachricht ? `Handel abgelehnt: ${action.nachricht}` : "Ein Handelsangebot wurde abgelehnt.", null, "alle");
       return;
     }
 
     case "chat": {
-      eintragen(state, action.text, action.von, action.an ? [action.von, action.an] : "alle");
+      eintragen(state, action.text, action.von, action.an ? [action.von, action.an] : "alle", "chat");
       return;
     }
   }

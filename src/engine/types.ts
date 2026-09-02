@@ -235,6 +235,8 @@ export interface Ereignis {
   text: string;
   /** Für den Chat: wer darf das sehen? Geheime Handelsdetails z.B. nicht alle */
   sichtbarFuer: SpielerId[] | "alle";
+  /** "chat" = echte Chatnachricht zwischen zwei Spielern, statt einer System-/Spielmeldung. */
+  art?: "chat";
 }
 
 // ────────────────────────────────────────────────────────────
