@@ -214,6 +214,8 @@ export interface GameState {
   log: Ereignis[];
   runde: number;
   seed: string; // reproduzierbarer PRNG statt Math.random
+  /** Zählt jede Zufallsziehung hoch — macht (seed, ziehung) -> Zufallswert eindeutig */
+  ziehungsZaehler: number;
 }
 
 export interface Ereignis {
@@ -246,7 +248,9 @@ export type Action =
   | { typ: "schuld-begleichen" }
   | { typ: "bankrott-erklaeren" }
   | { typ: "zug-beenden" }
-  | { typ: "chat"; von: SpielerId; text: string };
+  | { typ: "chat"; von: SpielerId; text: string }
+  /** Bestätigt eine reine Info-Phase (z.B. eine gezogene Karte) und löst deren Effekt aus. */
+  | { typ: "weiter" };
 
 /** Die Engine lehnt ungültige Actions ab, statt zu werfen. */
 export type ActionErgebnis =
