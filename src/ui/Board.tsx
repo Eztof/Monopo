@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { gruppeVonFeld } from "../engine/board";
 import type { Feld, GameState } from "../engine/types";
 import { hexZuRgba } from "./farbe";
@@ -30,6 +30,36 @@ function feldKurzInfo(feld: Feld, topf: number): string {
   }
 }
 
+/** Felder, auf denen gerade eben ein Spieler gelandet ist — kurz aufleuchtend statt nur am Pünktchen erkennbar. */
+function useGeradeGelandet(state: GameState): Set<number> {
+  const vorherigeRef = useRef<Record<string, number> | null>(null);
+  const [blitz, setBlitz] = useState<Set<number>>(new Set());
+
+  useEffect(() => {
+    const vorherige = vorherigeRef.current;
+    const neuePositionen: number[] = [];
+    if (vorherige) {
+      for (const s of state.spieler) {
+        if (vorherige[s.id] !== undefined && vorherige[s.id] !== s.position) neuePositionen.push(s.position);
+      }
+    }
+    vorherigeRef.current = Object.fromEntries(state.spieler.map((s) => [s.id, s.position]));
+
+    if (neuePositionen.length === 0) return;
+    setBlitz((alt) => new Set([...alt, ...neuePositionen]));
+    const timer = setTimeout(() => {
+      setBlitz((alt) => {
+        const kopie = new Set(alt);
+        neuePositionen.forEach((id) => kopie.delete(id));
+        return kopie;
+      });
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [state.spieler]);
+
+  return blitz;
+}
+
 export function Board({
   state,
   center,
@@ -39,6 +69,8 @@ export function Board({
   center: ReactNode;
   onFieldClick: (feldId: number) => void;
 }) {
+  const geradeGelandet = useGeradeGelandet(state);
+
   return (
     <div className="brett">
       {state.brett.felder.map((feld) => {
@@ -51,7 +83,7 @@ export function Board({
           <button
             key={feld.id}
             type="button"
-            className="feld"
+            className={`feld${geradeGelandet.has(feld.id) ? " feld-blitz" : ""}`}
             style={{ gridRow: row, gridColumn: col, background: eigentuemer ? hexZuRgba(eigentuemer.farbe, bes?.belastet ? 0.18 : 0.4) : undefined }}
             title={feld.name}
             onClick={() => onFieldClick(feld.id)}

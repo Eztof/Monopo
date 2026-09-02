@@ -281,6 +281,19 @@ describe("Handel", () => {
     expect(r.state.offeneAngebote).toHaveLength(0);
   });
 
+  it("Handelsankündigungen sind öffentlich, nicht nur für die Beteiligten sichtbar", () => {
+    const state = spiel(["a", "b"]);
+    state.besitz[1].eigentuemer = "a";
+    const r = dispatch(state, {
+      typ: "handel-anbieten",
+      angebot: { von: "a", an: "b", gebeFelder: [1], gebeGeld: 0, gebeFreiKarten: 0, willFelder: [], willGeld: 50, willFreiKarten: 0 },
+    });
+    if (!r.ok) throw new Error(r.grund);
+    const eintrag = r.state.log.at(-1)!;
+    expect(eintrag.sichtbarFuer).toBe("alle");
+    expect(eintrag.art).toBeUndefined();
+  });
+
   it("merkt abgeschlossene Handel im Verlauf vor", () => {
     let state = spiel(["a", "b"]);
     state.besitz[1].eigentuemer = "a";
@@ -331,5 +344,23 @@ describe("Frei Parken", () => {
     if (!finalR.ok) return;
     expect(finalR.state.spieler[1].geld).toBe(vorher + 200);
     expect(finalR.state.frueParkenTopf).toBe(0);
+  });
+});
+
+describe("Chat", () => {
+  it("markiert private Nachrichten als art:chat mit genau zwei Empfängern", () => {
+    const state = spiel(["a", "b"]);
+    const r = dispatch(state, { typ: "chat", von: "a", an: "b", text: "Hallo!" });
+    if (!r.ok) throw new Error(r.grund);
+    const eintrag = r.state.log.at(-1)!;
+    expect(eintrag.art).toBe("chat");
+    expect(eintrag.sichtbarFuer).toEqual(["a", "b"]);
+  });
+
+  it("ist ohne Empfänger öffentlich", () => {
+    const state = spiel(["a", "b"]);
+    const r = dispatch(state, { typ: "chat", von: "a", text: "Hallo alle!" });
+    if (!r.ok) throw new Error(r.grund);
+    expect(r.state.log.at(-1)!.sichtbarFuer).toBe("alle");
   });
 });

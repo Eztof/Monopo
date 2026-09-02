@@ -92,8 +92,8 @@ function hilfsAktion(state: GameState): Action | null {
   return null;
 }
 
-/** Platzhalter für die künftige LLM-Anbindung (Stufe 4) — kleine, austauschbare Textbausteine. */
-function generiereKiAntwort(): string {
+/** Platzhalter, solange kein LLM angebunden ist (siehe App.tsx: findeUnbeantworteteNachricht + llm.ts). */
+export function generiereKiAntwort(): string {
   const antworten = [
     "Interessant. Lass mich kurz überlegen.",
     "Kommt drauf an, was du mir bietest.",
@@ -104,20 +104,49 @@ function generiereKiAntwort(): string {
   return antworten[Math.floor(Math.random() * antworten.length)];
 }
 
-/** Beantwortet die jeweils letzte unbeantwortete private Nachricht an eine KI (Platzhalter, siehe oben). */
-function chatAntwort(state: GameState): Action | null {
+/**
+ * Sucht die jeweils letzte unbeantwortete private Chatnachricht an eine KI — unabhängig davon,
+ * ob die Antwort dann von einem LLM (App.tsx) oder von generiereKiAntwort() (Platzhalter) kommt.
+ */
+export function findeUnbeantworteteNachricht(state: GameState): { ki: Spieler & { ki: NonNullable<Spieler["ki"]> }; partnerId: SpielerId } | null {
   for (const akteur of state.spieler) {
     if (!istKi(akteur)) continue;
     let partnerId: SpielerId | null = null;
     for (let i = state.log.length - 1; i >= 0; i--) {
       const e = state.log[i];
-      if (!Array.isArray(e.sichtbarFuer) || !e.sichtbarFuer.includes(akteur.id)) continue;
+      if (e.art !== "chat" || !Array.isArray(e.sichtbarFuer) || !e.sichtbarFuer.includes(akteur.id)) continue;
       if (e.akteur && e.akteur !== akteur.id) partnerId = e.akteur;
-      break; // die jeweils letzte relevante Nachricht entscheidet — egal ob Antwort nötig oder nicht
+      break; // die jeweils letzte Chatnachricht dieses Threads entscheidet
     }
-    if (partnerId) return { typ: "chat", von: akteur.id, an: partnerId, text: generiereKiAntwort() };
+    if (partnerId) return { ki: akteur, partnerId };
   }
   return null;
+}
+
+/** Der private Chatverlauf zwischen einer KI und einem Partner, fürs LLM als Nachrichtenliste. */
+export function baueChatVerlauf(state: GameState, kiId: SpielerId, partnerId: SpielerId): Array<{ rolle: "user" | "assistant"; text: string }> {
+  return state.log
+    .filter((e) => e.art === "chat" && Array.isArray(e.sichtbarFuer) && e.sichtbarFuer.includes(kiId) && e.sichtbarFuer.includes(partnerId))
+    .map((e) => ({ rolle: e.akteur === kiId ? ("assistant" as const) : ("user" as const), text: e.text }));
+}
+
+/** System-Prompt fürs LLM: Persönlichkeit statt Spielregeln — die Engine entscheidet, das Modell redet nur. */
+export function baueChatSystemPrompt(ki: Spieler & { ki: NonNullable<Spieler["ki"]> }, partner: Spieler | undefined): string {
+  const p = ki.ki.persoenlichkeit;
+  return [
+    `Du spielst die Figur "${p.name}" in einer Monopoly-Partie und chattest gerade mit ${partner?.name ?? "einem Mitspieler"}.`,
+    `Deine Persönlichkeit: ${p.beschreibung}`,
+    `Aktueller Kontostand: ${ki.geld}.`,
+    "Antworte kurz (ein bis drei Sätze), im Charakter, auf Deutsch.",
+    "Du entscheidest hier NICHT über Käufe, Bauen oder Handel — das läuft automatisch in der Spiel-Engine. Hier chattest du nur; wenn du einen Handel vorschlagen willst, sag es in Worten, das eigentliche Angebot macht die Engine separat.",
+  ].join(" ");
+}
+
+/** Beantwortet die jeweils letzte unbeantwortete private Nachricht an eine KI (Platzhalter-Fallback ohne LLM). */
+function chatAntwort(state: GameState): Action | null {
+  const ziel = findeUnbeantworteteNachricht(state);
+  if (!ziel) return null;
+  return { typ: "chat", von: ziel.ki.id, an: ziel.partnerId, text: generiereKiAntwort() };
 }
 
 /** Eine KI schlägt selbst einen Handel vor, um eine Farbgruppe zu vervollständigen. */

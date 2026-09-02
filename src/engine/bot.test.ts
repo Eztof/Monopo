@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { naechsteAktion } from "./bot";
+import { baueChatSystemPrompt, baueChatVerlauf, findeUnbeantworteteNachricht, naechsteAktion } from "./bot";
 import { schwierigkeitsGrade, erzeugeSpiel } from "./state";
 import type { GameState, KiProfil } from "./types";
 
@@ -50,7 +50,7 @@ describe("Gnade-Verhalten", () => {
 describe("Chat-Platzhalter", () => {
   it("antwortet auf eine private Nachricht an eine KI", () => {
     const state = spiel();
-    state.log.push({ runde: 1, akteur: "mensch", text: "Hallo!", sichtbarFuer: ["mensch", "bot"] });
+    state.log.push({ runde: 1, akteur: "mensch", text: "Hallo!", sichtbarFuer: ["mensch", "bot"], art: "chat" });
 
     const aktion = naechsteAktion(state);
     expect(aktion?.typ).toBe("chat");
@@ -62,10 +62,42 @@ describe("Chat-Platzhalter", () => {
 
   it("antwortet nicht erneut, wenn die KI zuletzt selbst geschrieben hat", () => {
     const state = spiel();
-    state.log.push({ runde: 1, akteur: "mensch", text: "Hallo!", sichtbarFuer: ["mensch", "bot"] });
-    state.log.push({ runde: 1, akteur: "bot", text: "Hi zurück.", sichtbarFuer: ["mensch", "bot"] });
+    state.log.push({ runde: 1, akteur: "mensch", text: "Hallo!", sichtbarFuer: ["mensch", "bot"], art: "chat" });
+    state.log.push({ runde: 1, akteur: "bot", text: "Hi zurück.", sichtbarFuer: ["mensch", "bot"], art: "chat" });
 
     const aktion = naechsteAktion(state);
     expect(aktion?.typ).not.toBe("chat");
+  });
+
+  it("ignoriert nicht-Chat-Einträge (z.B. Handelsnotizen) bei der Erkennung", () => {
+    const state = spiel();
+    state.log.push({ runde: 1, akteur: "mensch", text: "Mensch bietet Bot einen Handel an.", sichtbarFuer: ["mensch", "bot"] });
+    expect(findeUnbeantworteteNachricht(state)).toBeNull();
+  });
+});
+
+describe("LLM-Vorbereitung", () => {
+  it("baut den Chatverlauf mit den richtigen Rollen in chronologischer Reihenfolge", () => {
+    const state = spiel();
+    state.log.push({ runde: 1, akteur: "mensch", text: "Hallo!", sichtbarFuer: ["mensch", "bot"], art: "chat" });
+    state.log.push({ runde: 1, akteur: "bot", text: "Hi zurück.", sichtbarFuer: ["mensch", "bot"], art: "chat" });
+    state.log.push({ runde: 1, akteur: "mensch", text: "Wie geht's?", sichtbarFuer: ["mensch", "bot"], art: "chat" });
+
+    const verlauf = baueChatVerlauf(state, "bot", "mensch");
+    expect(verlauf).toEqual([
+      { rolle: "user", text: "Hallo!" },
+      { rolle: "assistant", text: "Hi zurück." },
+      { rolle: "user", text: "Wie geht's?" },
+    ]);
+  });
+
+  it("baut einen System-Prompt aus der Persönlichkeit, nicht aus der Schwierigkeit", () => {
+    const state = spiel();
+    const bot = state.spieler[1] as typeof state.spieler[1] & { ki: NonNullable<(typeof state.spieler)[1]["ki"]> };
+    bot.ki.persoenlichkeit.beschreibung = "Frech und selbstbewusst.";
+    const prompt = baueChatSystemPrompt(bot, state.spieler[0]);
+    expect(prompt).toContain("Frech und selbstbewusst.");
+    expect(prompt).toContain("Mensch");
+    expect(prompt).not.toContain("bewertungstiefe");
   });
 });
